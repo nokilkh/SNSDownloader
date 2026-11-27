@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src sns-media:; media-src sns-media:; base-uri 'none'; form-action 'none'">
+<title>SNS Downloader</title>
+<link rel="stylesheet" href="styles.css">
+<script defer src="app.js"></script>
+</head>
+<body>
+<header>
+  <strong>SNS Downloader</strong>
+  <nav aria-label="主選單">
+    <button data-tab="accounts" aria-pressed="true" data-t>備份帳戶</button>
+    <button data-tab="library" aria-pressed="false" data-t>已下載內容</button>
+    <button data-tab="settings" aria-pressed="false" data-t>設定</button>
+  </nav>
+  <select id="language" aria-label="Language"><option value="zh-Hant">繁體中文</option><option value="en">English</option><option value="ja">日本語</option></select>
+</header>
+<main>
+  <p id="notice" role="status" hidden></p>
+  <section id="accounts" class="page">
+    <div class="heading">
+      <div><h1 data-t>備份帳戶</h1><p data-t>選擇一個帳戶更新，或手動更新全部；完整媒體會跳過。</p></div>
+      <div class="actions"><button id="add" data-t>新增備份帳戶</button><button id="update-all" class="primary" data-t>更新全部帳戶</button></div>
+    </div>
+    <div class="panel inline"><div><strong data-t>儲存位置</strong><div id="root" class="path"></div></div><button id="change-root" data-t>更改位置</button></div>
+    <form id="backup-post-form" class="panel">
+      <h2 data-t>貼上連結備份</h2>
+      <label for="post-link" class="hint" data-t>X、Instagram 或 TikTok 原文連結</label>
+      <div class="actions">
+        <input id="post-link" class="grow" inputmode="url" required maxlength="2048" autocomplete="off" spellcheck="false" aria-describedby="backup-post-hint backup-post-error">
+        <button id="backup-post-submit" class="primary" data-t disabled>備份此篇貼文</button>
+      </div>
+      <p id="backup-post-hint" class="hint" data-t>存入目前的備份位置，已保存的完整媒體會跳過。</p>
+      <p id="backup-post-error" class="warning" role="alert" hidden></p>
+    </form>
+    <div id="job" class="panel inline" hidden>
+      <div><strong id="job-status" aria-live="polite"></strong><div id="job-account" class="hint"></div></div>
+      <div class="actions"><button id="pause" data-t>暫停</button><button id="stop" data-t>停止</button></div>
+    </div>
+    <div class="segments" id="platform-filter" aria-label="平台">
+      <button data-platform="" data-t>全部</button><button data-platform="X">X</button><button data-platform="IG">IG</button><button data-platform="TikTok">TikTok</button>
+    </div>
+    <div id="targets"></div>
+  </section>
+  <section id="library" class="page" hidden>
+    <div class="heading"><div><h1 data-t>已下載內容</h1><p id="library-path" class="path"></p></div><div class="actions"><button id="reload-library" data-t>重新掃描</button><button id="choose-library" data-t>選擇瀏覽來源</button></div></div>
+    <form id="library-filters" class="library-filters" autocomplete="off">
+      <div class="library-fields">
+        <label><span data-t>平台</span><select id="library-platform"><option value="" data-t>全部平台</option><option value="X">X</option><option value="IG">Instagram</option><option value="TikTok">TikTok</option></select></label>
+        <label><span data-t>帳號</span><select id="library-account"><option value="" data-t>全部帳號</option></select></label>
+        <label class="library-search"><span data-t>搜尋貼文文字或 ALT</span><input id="search" type="search"></label>
+        <div class="date-field">
+          <label for="from" data-t>開始日期</label>
+          <div class="date-control"><input id="from" type="text" placeholder="DD/MM/YYYY" maxlength="10" aria-describedby="library-empty"></div>
+        </div>
+        <div class="date-field">
+          <label for="to" data-t>結束日期</label>
+          <div class="date-control"><input id="to" type="text" placeholder="DD/MM/YYYY" maxlength="10" aria-describedby="library-empty"></div>
+        </div>
+      </div>
+      <div class="library-options">
+        <div class="library-types" role="group" aria-labelledby="library-types-label">
+          <span id="library-types-label" data-t>分類</span>
+          <label class="check"><input id="library-image" type="checkbox" checked><span data-t>圖片</span></label>
+          <label class="check"><input id="library-video" type="checkbox" checked><span data-t>影片</span></label>
+          <label class="check"><input id="library-text" type="checkbox" checked><span data-t>純文字</span></label>
+        </div>
+        <label class="check"><input id="has-alt" type="checkbox"><span data-t>只顯示有 ALT</span></label>
+        <div class="library-sort">
+          <label><span data-t>排序</span><select id="library-sort"><option value="newest" data-t>最新到最舊</option><option value="oldest" data-t>最舊到最新</option></select></label>
+          <button id="reset-filters" type="reset" data-t>清除篩選</button>
+        </div>
+      </div>
+    </form>
+    <div class="library-summary">
+      <p id="library-result" role="status"></p>
+      <span class="hint" data-t>香港時間 UTC+08:00</span>
+    </div>
+    <p id="library-empty" class="panel hint" hidden></p>
+    <div id="library-grid" class="library-grid"></div>
+    <div class="library-more"><button id="library-more" type="button" data-t hidden>顯示更多貼文</button></div>
+  </section>
+  <section id="settings" class="page" hidden>
+    <h1 data-t>設定</h1>
+    <div class="panel"><h2 data-t>平台登入身份</h2><p data-t>預設先嘗試免登入。需要時可在網站視窗登入，每個平台可使用一個登入身份備份多個帳戶。</p><div id="logins"></div></div>
+    <div class="panel inline"><div><h2 data-t>備份儲存位置</h2><div id="settings-root" class="path"></div><p data-t>更換位置只影響新下載，舊檔案保留在原位。</p></div><button id="settings-folder" data-t>更改位置</button></div>
+  </section>
+</main>
+<dialog id="account-dialog">
+  <form id="account-form">
+    <h2 id="form-title" data-t>新增備份帳戶</h2>
+    <fieldset><legend data-t>平台</legend><div id="form-platform" class="segments">
+      <button type="button" data-value="X">X</button><button type="button" data-value="IG">Instagram</button><button type="button" data-value="TikTok">TikTok</button>
+    </div></fieldset>
+    <label><span data-t>帳號 ID 或個人頁連結</span><input id="handle" required maxlength="180" autocomplete="off"></label>
+    <fieldset><legend data-t>備份範圍</legend>
+      <label class="check"><input type="radio" name="range" value="all" checked><span data-t>全部可取得內容</span></label>
+      <label class="check"><input type="radio" name="range" value="since"><span data-t>指定日期之後</span></label>
+      <label class="check"><input type="radio" name="range" value="between"><span data-t>指定日期範圍</span></label>
+      <div id="backup-dates" class="actions" hidden>
+        <div class="date-field" id="since-field" hidden>
+          <label for="since" class="hint" data-t>開始日期</label>
+          <div class="date-control"><input id="since" type="text" placeholder="DD/MM/YYYY" maxlength="10" aria-describedby="form-error" disabled></div>
+        </div>
+        <div class="date-field" id="until-field" hidden>
+          <label for="until" class="hint" data-t>結束日期</label>
+          <div class="date-control"><input id="until" type="text" placeholder="DD/MM/YYYY" maxlength="10" aria-describedby="form-error" disabled></div>
+        </div>
+      </div>
+      <p id="since-hint" class="hint" data-t hidden>包含所選當日，香港時間 00:00 起。</p>
+      <p id="between-hint" class="hint" data-t hidden>按香港時間計算，開始與結束日期皆包含當日。</p>
+    </fieldset>
+    <p id="scope" class="hint"></p><p id="form-error" role="alert" hidden></p>
+    <div class="actions"><button class="primary" data-t>儲存帳戶</button><button id="cancel-form" type="button" data-t>取消</button></div>
+  </form>
+</dialog>
+<dialog id="x-paste-dialog" aria-labelledby="x-paste-title">
+  <form id="x-paste-form" autocomplete="off">
+    <h2 id="x-paste-title" data-t>貼上 X 登入資料</h2>
+    <p class="hint" data-t>在 Chrome 登入 x.com，開啟開發人員工具 → Application → Storage → Cookies → https://x.com。按 Name 尋找 auth_token 與 ct0，分別複製 Value，貼入下方同名欄位，再按「儲存並測試讀取」。</p>
+    <fieldset>
+      <label>auth_token<input id="x-auth-token" type="password" required spellcheck="false" autofocus></label>
+      <label>ct0<input id="x-csrf-token" type="password" required spellcheck="false"></label>
+    </fieldset>
+    <p id="x-paste-error" class="warning" role="alert" hidden></p>
+    <div class="actions">
+      <button id="x-paste-submit" class="primary" data-t>儲存並測試讀取</button>
+      <button id="x-paste-cancel" type="button" data-t>取消</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="post-dialog" aria-labelledby="post-title">
+  <div class="post-dialog-bar"><button id="close-post" type="button" autofocus data-t>返回貼文列表</button></div>
+  <article id="post" tabindex="0"></article>
+</dialog>
+<dialog id="remove-dialog">
+  <h2 data-t>移出備份清單？</h2><p id="remove-name"></p><p data-t>已下載內容、舊版本與登入資料將會保留。</p>
+  <div class="actions"><button id="remove-confirm" data-t>移出清單，保留檔案</button><button id="remove-cancel" data-t>取消</button></div>
+</dialog>
+<template id="date-picker-template">
+  <button class="date-picker-button" type="button">
+    <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5">
+      <rect x="2.75" y="3.75" width="10.5" height="10" rx="1.25"/>
+      <path d="M5 2v4m6-4v4M3 7h10"/>
+    </svg>
+  </button>
+  <input class="native-date-picker" type="date" tabindex="-1" aria-hidden="true">
+</template>
+</body>
+</html>

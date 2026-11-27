@@ -1,0 +1,96 @@
+{
+  "name": "takaneko-downloader",
+  "productName": "SNS Downloader",
+  "version": "2.0.3",
+  "description": "Back up X, Instagram and TikTok media",
+  "main": "src/main/sns/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac --x64 --arm64",
+    "build:win": "node scripts/prepare-windows-tools.js && electron-builder --win",
+    "test": "node scripts/test.js",
+    "test:desktop": "electron scripts/smoke-sns.js",
+    "test:desktop:legacy": "electron scripts/smoke-desktop.js",
+    "check:release": "node scripts/check-release.js"
+  },
+  "author": "Takaneko Fan",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "cheerio": "1.0.0-rc.12",
+    "electron-store": "^8.1.0"
+  },
+  "build": {
+    "appId": "com.nokilkh.snsdownloader",
+    "productName": "SNS Downloader",
+    "directories": {
+      "output": "dist"
+    },
+    "publish": null,
+    "extraResources": [
+      {"from":"resources/tiktok-plugins","to":"tiktok-plugins","filter":["**/*.py"]},
+      {
+        "from": "resources/tools/windows",
+        "to": "tools/windows",
+        "filter": [
+          "yt-dlp.exe",
+          "ffmpeg.exe",
+          "ffprobe.exe",
+          "deno.exe",
+          "LICENSE*",
+          "NOTICE*",
+          "gallery-dl.exe"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "extraResources": [{
+        "from": "resources/tools/macos",
+        "to": "tools/macos",
+        "filter": ["gallery_dl-1.32.21-py3-none-any.whl"]
+      }],
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "SNS-Downloader-${version}-macOS-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "SNS-Downloader-${version}-Windows-${arch}-Setup.${ext}"
+    },
+    "files": [
+      "src/**/*",
+      "server/local-reader/**/*",
+      "package.json",
+      "README.md",
+      "LICENSE",
+      "!**/*.test.js"
+    ],
+    "portable": {
+      "artifactName": "SNS-Downloader-${version}-Windows-${arch}-Portable.${ext}"
+    }
+  }
+}

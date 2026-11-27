@@ -1,0 +1,8 @@
+[Unit]
+Description=Takaneko NAS backup and retries, Hong Kong overnight window
+[Timer]
+OnCalendar=*-*-* 03..08:00,15,30,45:00 Asia/Hong_Kong
+Persistent=false
+Unit=takaneko-nas.service
+[Install]
+WantedBy=timers.target

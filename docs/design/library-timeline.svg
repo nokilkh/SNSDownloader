@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="986" viewBox="0 0 1180 986" role="img" aria-labelledby="title description">
+<title id="title">SNS Downloader 已下載內容卡片總覽設計</title>
+<desc id="description">預設顯示三平台混合時間線，並示範媒體類型、平台、帳號、日期、ALT、文字搜尋及排序。底部示範篩選後零篇貼文。預覽為示意資料。</desc>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;fill:#CDD6F4}
+.app{font-size:16px;font-weight:700}.heading{font-size:27px;font-weight:700}
+.body,.type{font-size:14px}.label{font-size:13px;font-weight:600}.small,.meta{font-size:12px}
+.meta,.hint{fill:#A6ADC8}.hint{font-size:13px}.count{font-size:16px;font-weight:650}
+.card-text{font-size:15px;font-weight:600}.quote{font-size:19px;font-weight:600}.type{fill:#F5A9CF}
+</style>
+<defs>
+  <linearGradient id="rose" x2="1" y2="1"><stop stop-color="#59465B"/><stop offset="1" stop-color="#302942"/></linearGradient>
+  <linearGradient id="blue" x2="1" y2="1"><stop stop-color="#3B546A"/><stop offset="1" stop-color="#24283E"/></linearGradient>
+  <linearGradient id="sage" x2="1" y2="1"><stop stop-color="#4C625E"/><stop offset="1" stop-color="#28383E"/></linearGradient>
+  <linearGradient id="slate" x2="1" y2="1"><stop stop-color="#484364"/><stop offset="1" stop-color="#272739"/></linearGradient>
+  <g id="photo" fill="none" stroke="#CDD6F4" stroke-opacity=".8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="36" height="31" rx="5"/><circle cx="16" cy="15" r="3"/><path d="m5 30 9-8 6 5 8-9 11 10"/></g>
+  <g id="film"><circle cx="22" cy="22" r="21" fill="#181825" stroke="#A6ADC8"/><path d="m18 13 14 9-14 9Z" fill="#CDD6F4"/></g>
+</defs>
+<rect x="0" y="0" width="1180" height="986" rx="0" fill="#1E1E2E"/>
+<rect x="0" y="0" width="1180" height="58" rx="0" fill="#181825"/>
+<circle cx="21" cy="29" r="5.5" fill="#F38BA8"/>
+<circle cx="42" cy="29" r="5.5" fill="#F9E2AF"/>
+<circle cx="63" cy="29" r="5.5" fill="#A6E3A1"/>
+<text x="100" y="35" class="app" text-anchor="start">SNS Downloader</text>
+<text x="864" y="35" class="body" text-anchor="start">備份帳戶</text>
+<rect x="930" y="12" width="102" height="34" rx="8" fill="#34283E" stroke="#786179"/>
+<text x="981" y="34" class="label" text-anchor="middle">已下載內容</text>
+<text x="1060" y="35" class="body" text-anchor="start">設定</text>
+<text x="1149" y="35" class="body" text-anchor="end">繁中</text>
+<text x="24" y="103" class="heading" text-anchor="start">已下載內容</text>
+<text x="24" y="126" class="hint" text-anchor="start">目前瀏覽來源：SNS Backup</text>
+<rect x="937" y="78" width="88" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<text x="949" y="101" class="body" text-anchor="start">重新掃描</text>
+<rect x="1037" y="78" width="119" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<text x="1049" y="101" class="body" text-anchor="start">選擇瀏覽來源</text>
+<rect x="24" y="144" width="1132" height="156" rx="10" fill="#242437" stroke="#45475A"/>
+<text x="40" y="169" class="label" text-anchor="start">平台</text>
+<text x="230" y="169" class="label" text-anchor="start">帳號</text>
+<text x="420" y="169" class="label" text-anchor="start">搜尋貼文文字或 ALT</text>
+<text x="794" y="169" class="label" text-anchor="start">開始日期</text>
+<text x="971" y="169" class="label" text-anchor="start">結束日期</text>
+<rect x="40" y="179" width="174" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<text x="52" y="202" class="body" text-anchor="start">全部平台</text>
+<path d="m192 194 5 5 5-5" fill="none" stroke="#CDD6F4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="230" y="179" width="174" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<text x="242" y="202" class="body" text-anchor="start">全部帳號</text>
+<path d="m382 194 5 5 5-5" fill="none" stroke="#CDD6F4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="420" y="179" width="358" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<circle cx="435" cy="196" r="4.5" stroke="#A6ADC8" fill="none" stroke-width="1.5"/><path d="m438.5 199.5 4 4" stroke="#A6ADC8" stroke-width="1.5" stroke-linecap="round"/>
+<text x="452" y="202" class="hint" text-anchor="start">輸入關鍵字</text>
+<rect x="794" y="179" width="169" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<text x="806" y="202" class="body" text-anchor="start">年 / 月 / 日</text>
+<rect x="937" y="190" width="13" height="13" rx="2" fill="none" stroke="#A6ADC8"/><path d="M937 194h13m-10-6v4m7-4v4" fill="none" stroke="#A6ADC8"/>
+<rect x="971" y="179" width="169" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<text x="983" y="202" class="body" text-anchor="start">年 / 月 / 日</text>
+<rect x="1114" y="190" width="13" height="13" rx="2" fill="none" stroke="#A6ADC8"/><path d="M1114 194h13m-10-6v4m7-4v4" fill="none" stroke="#A6ADC8"/>
+<path d="M40 231h1100" stroke="#45475A"/>
+<text x="40" y="263" class="label" text-anchor="start">分類</text>
+<rect x="91" y="250" width="17" height="17" rx="4" fill="#FF007F"/>
+<path d="m95 259 3 3 6-7" fill="none" stroke="#11111B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="116" y="263" class="body" text-anchor="start">圖片</text>
+<rect x="174" y="250" width="17" height="17" rx="4" fill="#FF007F"/>
+<path d="m178 259 3 3 6-7" fill="none" stroke="#11111B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="199" y="263" class="body" text-anchor="start">影片</text>
+<rect x="257" y="250" width="17" height="17" rx="4" fill="#FF007F"/>
+<path d="m261 259 3 3 6-7" fill="none" stroke="#11111B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="282" y="263" class="body" text-anchor="start">純文字</text>
+<path d="M349 246v26" stroke="#45475A"/>
+<rect x="368" y="250" width="17" height="17" rx="4" fill="#181825" stroke="#6C7086"/>
+<text x="393" y="263" class="body" text-anchor="start">只睇有 ALT</text>
+<text x="797" y="263" class="label" text-anchor="start">排序</text>
+<rect x="833" y="240" width="173" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<text x="845" y="263" class="body" text-anchor="start">最新到最舊</text>
+<path d="m984 255 5 5 5-5" fill="none" stroke="#CDD6F4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1018" y="240" width="122" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<text x="1030" y="263" class="body" text-anchor="start">清除篩選</text>
+<text x="24" y="331" class="count" text-anchor="start">共 768 篇貼文</text>
+<text x="1156" y="331" class="hint" text-anchor="end">香港時間 UTC+08:00</text>
+<rect x="24" y="349" width="267" height="212" rx="10" fill="#242437" stroke="#45475A"/>
+<g clip-path="url(#clip-24-349)"><clipPath id="clip-24-349"><rect x="25" y="350" width="265" height="146" rx="9"/></clipPath>
+<rect x="25" y="350" width="265" height="146" rx="0" fill="url(#rose)"/>
+<use href="#photo" x="135" y="401"/>
+</g>
+<rect x="35" y="360" width="53" height="24" rx="5" fill="#181825"/>
+<text x="61" y="377" class="small" text-anchor="middle">圖片</text>
+<rect x="240" y="360" width="40" height="24" rx="5" fill="#181825"/>
+<text x="260" y="377" class="small" text-anchor="middle">ALT</text>
+<text x="38" y="519" class="card-text" text-anchor="start">お休みな日</text>
+<text x="38" y="545" class="meta" text-anchor="start">X   @MomokoHashimoto</text>
+<text x="277" y="545" class="meta" text-anchor="end">22/11 19:20</text>
+<rect x="312" y="349" width="267" height="212" rx="10" fill="#242437" stroke="#45475A"/>
+<g clip-path="url(#clip-312-349)"><clipPath id="clip-312-349"><rect x="313" y="350" width="265" height="146" rx="9"/></clipPath>
+<rect x="313" y="350" width="265" height="146" rx="0" fill="url(#blue)"/>
+<use href="#film" x="423" y="401"/>
+</g>
+<rect x="323" y="360" width="53" height="24" rx="5" fill="#181825"/>
+<text x="349" y="377" class="small" text-anchor="middle">影片</text>
+<text x="326" y="519" class="card-text" text-anchor="start">きょうもおつかれさま✌</text>
+<text x="326" y="545" class="meta" text-anchor="start">TikTok   @momoko_hashimoto</text>
+<text x="565" y="545" class="meta" text-anchor="end">22/11 18:07</text>
+<rect x="601" y="349" width="267" height="212" rx="10" fill="#242437" stroke="#45475A"/>
+<text x="616" y="378" class="type" text-anchor="start">純文字</text>
+<text x="616" y="417" class="quote" text-anchor="start">ハニフェス</text>
+<text x="616" y="442" class="quote" text-anchor="start">たのしみだね</text>
+<text x="615" y="545" class="meta" text-anchor="start">X   @MomokoHashimoto</text>
+<text x="854" y="545" class="meta" text-anchor="end">22/11 16:42</text>
+<rect x="889" y="349" width="267" height="212" rx="10" fill="#242437" stroke="#45475A"/>
+<g clip-path="url(#clip-889-349)"><clipPath id="clip-889-349"><rect x="890" y="350" width="265" height="146" rx="9"/></clipPath>
+<rect x="890" y="350" width="265" height="146" rx="0" fill="url(#sage)"/>
+<use href="#photo" x="1000" y="401"/>
+</g>
+<rect x="900" y="360" width="53" height="24" rx="5" fill="#181825"/>
+<text x="926" y="377" class="small" text-anchor="middle">圖片</text>
+<text x="903" y="519" class="card-text" text-anchor="start">今日の写真</text>
+<text x="903" y="545" class="meta" text-anchor="start">IG   @momoko_sample</text>
+<text x="1142" y="545" class="meta" text-anchor="end">22/11 14:03</text>
+<rect x="24" y="579" width="267" height="212" rx="10" fill="#242437" stroke="#45475A"/>
+<text x="39" y="608" class="type" text-anchor="start">純文字</text>
+<text x="39" y="647" class="quote" text-anchor="start">にゃんにゃん</text>
+<text x="38" y="775" class="meta" text-anchor="start">X   @MomokoHashimoto</text>
+<text x="277" y="775" class="meta" text-anchor="end">22/11 13:12</text>
+<rect x="312" y="579" width="267" height="212" rx="10" fill="#242437" stroke="#45475A"/>
+<g clip-path="url(#clip-312-579)"><clipPath id="clip-312-579"><rect x="313" y="580" width="265" height="146" rx="9"/></clipPath>
+<rect x="313" y="580" width="265" height="146" rx="0" fill="url(#slate)"/>
+<use href="#photo" x="423" y="631"/>
+</g>
+<rect x="323" y="590" width="53" height="24" rx="5" fill="#181825"/>
+<text x="349" y="607" class="small" text-anchor="middle">圖片</text>
+<text x="326" y="749" class="card-text" text-anchor="start">昨日のオフショット</text>
+<text x="326" y="775" class="meta" text-anchor="start">IG   @momoko_sample</text>
+<text x="565" y="775" class="meta" text-anchor="end">22/11 11:04</text>
+<rect x="601" y="579" width="267" height="212" rx="10" fill="#242437" stroke="#45475A"/>
+<g clip-path="url(#clip-601-579)"><clipPath id="clip-601-579"><rect x="602" y="580" width="265" height="146" rx="9"/></clipPath>
+<rect x="602" y="580" width="265" height="146" rx="0" fill="url(#rose)"/>
+<use href="#film" x="712" y="631"/>
+</g>
+<rect x="612" y="590" width="53" height="24" rx="5" fill="#181825"/>
+<text x="638" y="607" class="small" text-anchor="middle">影片</text>
+<text x="615" y="749" class="card-text" text-anchor="start">ライブの帰り道</text>
+<text x="615" y="775" class="meta" text-anchor="start">TikTok   @momoko_hashimoto</text>
+<text x="854" y="775" class="meta" text-anchor="end">21/11 22:05</text>
+<rect x="889" y="579" width="267" height="212" rx="10" fill="#242437" stroke="#45475A"/>
+<text x="904" y="608" class="type" text-anchor="start">純文字</text>
+<text x="904" y="647" class="quote" text-anchor="start">からあげ</text>
+<text x="903" y="775" class="meta" text-anchor="start">X   @MomokoHashimoto</text>
+<text x="1142" y="775" class="meta" text-anchor="end">21/11 21:18</text>
+<text x="24" y="828" class="label" text-anchor="start">篩選後狀態</text>
+<rect x="24" y="842" width="1132" height="122" rx="10" fill="#242437" stroke="#45475A"/>
+<text x="40" y="872" class="label" text-anchor="start">X  /  @MomokoHashimoto</text>
+<rect x="277" y="859" width="17" height="17" rx="4" fill="#FF007F"/>
+<path d="m281 868 3 3 6-7" fill="none" stroke="#11111B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="302" y="872" class="body" text-anchor="start">圖片</text>
+<rect x="359" y="859" width="17" height="17" rx="4" fill="#181825" stroke="#6C7086"/>
+<text x="384" y="872" class="body" text-anchor="start">影片</text>
+<rect x="442" y="859" width="17" height="17" rx="4" fill="#181825" stroke="#6C7086"/>
+<text x="467" y="872" class="body" text-anchor="start">純文字</text>
+<rect x="545" y="859" width="17" height="17" rx="4" fill="#FF007F"/>
+<path d="m549 868 3 3 6-7" fill="none" stroke="#11111B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="570" y="872" class="body" text-anchor="start">只睇有 ALT</text>
+<text x="688" y="872" class="hint" text-anchor="start">01/01/2020 – 31/01/2020</text>
+<text x="893" y="872" class="body" text-anchor="start">最舊到最新</text>
+<rect x="1018" y="851" width="122" height="36" rx="8" fill="#181825" stroke="#45475A"/>
+<text x="1030" y="874" class="body" text-anchor="start">清除篩選</text>
+<path d="M40 900h1100" stroke="#45475A"/>
+<text x="40" y="932" class="count" text-anchor="start">共 0 篇貼文</text>
+<text x="170" y="932" class="hint" text-anchor="start">搵唔到符合條件嘅貼文。試吓更改篩選。</text>
+</svg>
