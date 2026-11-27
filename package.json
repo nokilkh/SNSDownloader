@@ -14,7 +14,7 @@
     "test:desktop:legacy": "electron scripts/smoke-desktop.js",
     "check:release": "node scripts/check-release.js"
   },
-  "author": "Takaneko Fan",
+  "author": "nokilkh",
   "license": "MIT",
   "devDependencies": {
     "electron": "45.4.1",
