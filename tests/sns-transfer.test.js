@@ -39,3 +39,57 @@ test('rejects HTML and does not retry access denial or rate limits', async t => 
     await assert.rejects(fs.stat(file),{code:'ENOENT'});
   }
 });
+
+test('allows steady streams longer than the stall timeout and aborts truly stalled or oversized streams', async t => {
+  const file = await destination(t);
+  const steadyRequest = async () => new Response(new ReadableStream({
+    async start(controller) {
+      for (const part of ['aa', 'bb', 'cc']) {
+        await new Promise(resolve => setTimeout(resolve, 30));
+        controller.enqueue(Buffer.from(part));
+      }
+      controller.close();
+    }
+  }), { headers: { 'Content-Type': 'video/mp4', 'Content-Length': '6' } });
+  await downloadMedia(url, file, signal(), {
+    request: steadyRequest,
+    headerTimeoutMs: 100,
+    stallTimeoutMs: 60,
+    totalTimeoutMs: 500,
+    wait: async () => {}
+  });
+  assert.equal(await fs.readFile(file, 'utf8'), 'aabbcc');
+
+  const file2 = await destination(t);
+  let stallAttempts = 0;
+  const stalledRequest = async (_u, { signal: reqSignal }) => {
+    stallAttempts++;
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(Buffer.from('a'));
+        reqSignal.addEventListener('abort', () => controller.error(new Error('aborted')), { once: true });
+      }
+    }), { headers: { 'Content-Type': 'video/mp4', 'Content-Length': '10' } });
+  };
+  await assert.rejects(downloadMedia(url, file2, signal(), {
+    request: stalledRequest,
+    headerTimeoutMs: 100,
+    stallTimeoutMs: 40,
+    totalTimeoutMs: 500,
+    wait: async () => {}
+  }), { code: 'network' });
+  assert.equal(stallAttempts, 3);
+
+  const file3 = await destination(t);
+  let bigAttempts = 0;
+  await assert.rejects(downloadMedia(url, file3, signal(), {
+    request: async () => {
+      bigAttempts++;
+      return new Response('0123456789', { headers: { 'Content-Type': 'video/mp4', 'Content-Length': '10' } });
+    },
+    maxBytes: 5,
+    wait: async () => {}
+  }), { code: 'invalid-media' });
+  assert.equal(bigAttempts, 1);
+  await assert.rejects(fs.stat(file3), { code: 'ENOENT' });
+});

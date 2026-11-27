@@ -103,21 +103,26 @@ async function webPosts(account,jar,signal,{probe=false,id}={}) {
     wc.session.setPermissionRequestHandler((_wc,_perm,cb)=>cb(false));
     wc.session.on('will-download',event=>event.preventDefault());
     for(const line of (jar || '').split('\n')){
-      const [domain,subs,path,secure,expiry,name,value]=line.replace(/^#HttpOnly_/,'').split('\t');
+      const [domain,subs,cookiePath,secure,expiry,name,value]=line.replace(/^#HttpOnly_/,'').split('\t');
       if(!name || !/^(?:\.?[\w-]+\.)*\.?tiktok\.com$/i.test(domain) || (Number(expiry)>0 && Number(expiry)<=Date.now()/1000))continue;
-      await wc.session.cookies.set({url:'https://'+domain.replace(/^\./,'')+path,...(subs==='TRUE'?{domain}:{}),path,name,value,secure:secure==='TRUE',httpOnly:line.startsWith('#HttpOnly_'),...(Number(expiry)?{expirationDate:Number(expiry)}:{})});
+      try{
+        await wc.session.cookies.set({url:'https://'+domain.replace(/^\./,'')+cookiePath,...(subs==='TRUE'?{domain}:{}),path:cookiePath,name,value,secure:secure==='TRUE',httpOnly:line.startsWith('#HttpOnly_'),...(Number(expiry)?{expirationDate:Number(expiry)}:{})});
+      }catch{}
     }
     await wc.loadURL('about:blank');
     dbg.attach('1.3');
     dbg.on('message',async(_event,method,p)=>{
-      if(method==='Network.responseReceived'){
-        const u=new URL(p.response.url);
-        if(u.origin==='https://www.tiktok.com' && u.pathname==='/api/post/item_list/' && p.response.status===200)
-          pending.set(p.requestId,u.searchParams.get('cursor') || '0');
-      }
-      if(method!=='Network.loadingFinished' || !pending.has(p.requestId))return;
-      const start=pending.get(p.requestId);pending.delete(p.requestId);
       try{
+        if(method==='Network.responseReceived'){
+          if(!p?.response?.url)return;
+          let u;
+          try{u=new URL(p.response.url);}catch{return;}
+          if(u.origin==='https://www.tiktok.com' && u.pathname==='/api/post/item_list/' && p.response.status===200)
+            pending.set(p.requestId,u.searchParams.get('cursor') || '0');
+          return;
+        }
+        if(method!=='Network.loadingFinished' || !pending.has(p.requestId))return;
+        const start=pending.get(p.requestId);pending.delete(p.requestId);
         const r=await dbg.sendCommand('Network.getResponseBody',{requestId:p.requestId});
         if(start!==cursor || end)return;
         if(!r.body){emptyBody=true;return;}
@@ -143,7 +148,11 @@ async function webPosts(account,jar,signal,{probe=false,id}={}) {
       await delay(500,undefined,{signal});
     }
   }catch{signal.throwIfAborted();}
-  finally{signal.removeEventListener('abort',destroy);destroy();}
+  finally{
+    signal.removeEventListener('abort',destroy);
+    try{if(!win.isDestroyed() && dbg.isAttached())dbg.detach();}catch{}
+    destroy();
+  }
   return {posts:[...posts.values()],errors:received && end && !partial?[]:[emptyBody && !received?'tiktok-empty-body':'photos-unverified']};
 }
 module.exports={accountPage,webPosts,creatorPosts};

@@ -37,9 +37,15 @@ Thumbs.db
 
 # User data
 exported/
-*.json
-!package.json
-!package-lock.json
+session.json
+sns-settings.json
+deployment-access*.json
+
+# Local development notes & design files
+docs/
+PROGRESS.md
+REQUIREMENTS.md
+RELEASE_NOTES.md
 
 # Environment
 .env

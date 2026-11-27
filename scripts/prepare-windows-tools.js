@@ -9,15 +9,19 @@ const projectRoot = path.resolve(__dirname, '..');
 const toolsDir = path.join(projectRoot, 'resources', 'tools', 'windows');
 const ytDlpVersion = '2026.08.19';
 const ytdlpBase = `https://github.com/yt-dlp/yt-dlp/releases/download/${ytDlpVersion}/`;
+const galleryDlVersion = 'v1.32.21';
+const galleryDlBase = `https://github.com/mikf/gallery-dl/releases/download/${galleryDlVersion}/`;
 const denoVersion = 'v2.9.7';
 const denoBase = `https://github.com/denoland/deno/releases/download/${denoVersion}/`;
-const ffmpegUrl = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
+const ffmpegBase = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/';
+const ffmpegAsset = 'ffmpeg-master-latest-win64-gpl.zip';
+const ffmpegUrl = ffmpegBase + ffmpegAsset;
 
 function download(url, destination, redirects = 0) {
   if (redirects > 5) throw new Error(`Too many redirects while downloading ${url}`);
 
   return new Promise((resolve, reject) => {
-    const request = https.get(url, { headers: { 'User-Agent': 'TakanekoFanClubDownloader-build' } }, response => {
+    const request = https.get(url, { headers: { 'User-Agent': 'SNSDownloader-build' } }, response => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         response.resume();
         download(new URL(response.headers.location, url).toString(), destination, redirects + 1)
@@ -69,10 +73,11 @@ async function main() {
 
   fs.mkdirSync(toolsDir, { recursive: true });
   const ytDlpPath = path.join(toolsDir, 'yt-dlp.exe');
+  const galleryDlPath = path.join(toolsDir, 'gallery-dl.exe');
   const ffmpegPath = path.join(toolsDir, 'ffmpeg.exe');
   const ffprobePath = path.join(toolsDir, 'ffprobe.exe');
   const denoPath = path.join(toolsDir, 'deno.exe');
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'takaneko-tools-'));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sns-tools-'));
 
   try {
     const sums=path.join(tempDir,'yt-dlp-sums.txt');
@@ -88,6 +93,25 @@ async function main() {
       fs.copyFileSync(downloadedYtDlp, ytDlpPath);
     }
     assertExecutable(ytDlpPath, 'yt-dlp');
+
+    const galleryDlSums = path.join(tempDir, 'gallery-dl-sums.txt');
+    await download(galleryDlBase + 'gallery-dl.exe.sha256', galleryDlSums).catch(() => download(galleryDlBase + 'SHA256SUMS', galleryDlSums));
+    const galleryDlExpected = fs.readFileSync(galleryDlSums, 'utf8')
+      .split(/\r?\n/)
+      .map(line => line.trim().split(/\s+/))
+      .find(parts => parts.length === 1 || parts[1]?.replace(/^\*/, '') === 'gallery-dl.exe')?.[0]?.toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(galleryDlExpected || '')) throw new Error('gallery-dl checksum missing');
+    if (!fs.existsSync(galleryDlPath) || sha(galleryDlPath) !== galleryDlExpected) {
+      const downloadedGalleryDl = path.join(tempDir, 'gallery-dl.exe');
+      console.log('Downloading gallery-dl for the Windows package...');
+      await download(galleryDlBase + 'gallery-dl.exe', downloadedGalleryDl);
+      if (sha(downloadedGalleryDl) !== galleryDlExpected) throw new Error('gallery-dl checksum mismatch');
+      fs.copyFileSync(downloadedGalleryDl, galleryDlPath);
+    }
+    assertExecutable(galleryDlPath, 'gallery-dl');
+    await download(`https://raw.githubusercontent.com/mikf/gallery-dl/${galleryDlVersion}/LICENSE`, path.join(toolsDir, 'LICENSE-GALLERY-DL.txt'));
+    execFileSync(galleryDlPath, ['--version'], { stdio: 'inherit' });
+
     const denoName='deno-x86_64-pc-windows-msvc.zip';
     const denoZip=path.join(tempDir,denoName),denoSums=path.join(tempDir,'deno-sums.txt');
     await download(denoBase+denoName+'.sha256sum',denoSums);
@@ -107,10 +131,19 @@ async function main() {
     execFileSync(ytDlpPath,['--ignore-config','--js-runtimes',`deno:${denoPath}`,'--version'],{stdio:'inherit'});
 
     if (!fs.existsSync(ffmpegPath) || !fs.existsSync(ffprobePath)) {
+      const ffmpegSums = path.join(tempDir, 'ffmpeg-sums.txt');
+      await download(ffmpegBase + 'checksums.sha256', ffmpegSums);
+      const ffmpegExpected = fs.readFileSync(ffmpegSums, 'utf8')
+        .split(/\r?\n/)
+        .map(line => line.trim().split(/\s+/))
+        .find(parts => parts[1]?.replace(/^\*/, '') === ffmpegAsset)?.[0]?.toLowerCase();
+      if (!/^[a-f0-9]{64}$/.test(ffmpegExpected || '')) throw new Error('ffmpeg checksum missing');
+
       const ffmpegZip = path.join(tempDir, 'ffmpeg.zip');
       const extractDir = path.join(tempDir, 'ffmpeg');
       console.log('Downloading ffmpeg for the Windows package...');
       await download(ffmpegUrl, ffmpegZip);
+      if (sha(ffmpegZip) !== ffmpegExpected) throw new Error('ffmpeg checksum mismatch');
       fs.mkdirSync(extractDir, { recursive: true });
       execFileSync('powershell.exe', [
         '-NoProfile',

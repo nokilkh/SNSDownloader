@@ -597,7 +597,22 @@ app.whenReady().then(async()=>{
     await until('sns.invoke("state").then(s=>!s.job)');
     assert.equal((await stateAfter()).xHistory.state,'searched');
     assert.ok((await scan(path.join(fixture,'SNSDownloader'))).some(p=>p.id==='806'));
-    console.log('SNS desktop: all-range X search found 2018 post and resumed interrupted history.');
+    // Verify since-only X accounts backfill older posts back to the since floor instead of stopping at the timeline cap.
+    const recentSince=new Date(Date.now()-35*86400000).toISOString().slice(0,10);
+    const oldSinceDate=new Date(Date.now()-20*86400000).toISOString();
+    await exec(`sns.invoke('save-account','X','since_only',${JSON.stringify(recentSince)},null,null)`);
+    fs.rmSync(sample+'.auto-old',{force:true});
+    fs.writeFileSync(sample,JSON.stringify([[2,{tweet_id:'901',author:{name:'since_only',id:'88'},
+      content:'Timeline post',date:new Date(Date.now()-86400000).toISOString().slice(0,19).replace('T',' ')}]]));
+    fs.writeFileSync(sample+'.search',JSON.stringify([[2,{tweet_id:'902',author:{name:'since_only',id:'88'},
+      content:'Backfilled since-only post',date:oldSinceDate.slice(0,19).replace('T',' ')}]]));
+    await exec('sns.invoke("start","X:since_only",false)');
+    await until('sns.invoke("state").then(s=>!s.job)');
+    const sinceOnlyState=(await exec('sns.invoke("state")')).accounts.find(a=>a.key==='X:since_only').result;
+    assert.equal(sinceOnlyState.phase,'complete');
+    assert.equal(sinceOnlyState.xHistory.state,'searched');
+    assert.ok((await scan(path.join(fixture,'SNSDownloader'))).some(p=>p.id==='902'));
+    console.log('SNS desktop: all-range and since-only X search found older posts and resumed interrupted history.');
     console.log('SNS desktop: prior flows, signed-in Instagram Web, and X historical date search passed.');
   } catch(error){console.error(error);process.exitCode=1;}
   finally{

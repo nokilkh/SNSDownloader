@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
-const { decode, normalize, target, toolIssue, tiktokPlaylist } = require('../src/main/sns/sources');
-const { archive, scan } = require('../src/main/sns/archive');
+const { decode, normalize, target, toolIssue, tiktokPlaylist, command } = require('../src/main/sns/sources');
+const { archive, scan, inside, verified } = require('../src/main/sns/archive');
 const { postLink, instagramEmbedPost } = require('../src/main/sns/postLink');
 
 test('backup links are restricted to canonical platform posts', () => {
@@ -169,4 +169,45 @@ test('TikTok playlist accepts owned videos with stable IDs and records incomplet
   assert.equal(post.date,'2026-11-17T13:39:05.000Z');
   assert.equal(post.media[0].id,'0');
   assert.equal(post.media[0].postUrl.toLowerCase(),video.url);
+});
+
+test('inside() handles root directories and rejects prefix-escape paths', () => {
+  assert.equal(inside('/', '/archive/file.jpg'), true);
+  assert.equal(inside('/tmp/archive', '/tmp/archive/file.jpg'), true);
+  assert.equal(inside('/tmp/archive', '/tmp/archive'), false);
+  assert.equal(inside('/tmp/archive', '/tmp/archive-other/file.jpg'), false);
+  assert.equal(inside('/tmp/archive', '/tmp/other/file.jpg'), false);
+});
+
+test('archive records mtimeMs for fast skips while retry mode verifies full SHA-256', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sns-fast-verify-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const post = { platform: 'X', account: 'Boss', accountId: '99', id: '555', date: '2024-08-01T00:00:00Z', text: 'ok',
+    media: [{ id: '1', type: 'image', ext: 'jpg', order: 1, altState: 'na' }] };
+  let calls = 0;
+  const transfer = async (_m, file) => {
+    calls++;
+    await fs.writeFile(file, 'abcd');
+    return { width: 100, height: 100, quality: 'best', ext: 'jpg' };
+  };
+  const first = await archive(post, { root, transfer, signal: new AbortController().signal });
+  assert.equal(typeof first.record.media[0].mtimeMs, 'number');
+  const filePath = path.join(first.record.folder, first.record.media[0].file);
+  // Corrupt content in-place with identical length and restored mtime to verify retry still catches SHA mismatch.
+  const originalStat = await fs.stat(filePath);
+  await fs.writeFile(filePath, 'wxyz');
+  await fs.utimes(filePath, originalStat.atime, originalStat.mtime);
+  assert.equal(await verified(first.record.folder, first.record.media[0], { fast: true }), true);
+  assert.equal(await verified(first.record.folder, first.record.media[0]), false);
+  const repaired = await archive(post, { root, transfer, signal: new AbortController().signal, previous: first.record, retry: true });
+  assert.equal(calls, 2);
+  assert.equal(await fs.readFile(filePath, 'utf8'), 'abcd');
+  assert.equal(await verified(repaired.record.folder, repaired.record.media[0]), true);
+});
+
+test('command() terminates spawned process tree cleanly when aborted', async () => {
+  const controller = new AbortController();
+  const promise = command(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], controller.signal, 30000);
+  setTimeout(() => controller.abort(), 50);
+  await assert.rejects(promise, err => err.name === 'AbortError' || err.code === 'ABORT_ERR');
 });

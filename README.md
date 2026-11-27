@@ -60,9 +60,6 @@ npm run build:mac        # 打包 macOS（需於 macOS 執行）
 npm run build:win        # 打包 Windows
 ```
 
-- 實站驗證紀錄與待確認項目請見 [PROGRESS.md](PROGRESS.md)。
-- 舊版伺服器／NAS 與 Local Reader 相關工具請參考 [server/README.md](server/README.md)（一般桌面使用無須部署伺服器）。
-
 ### 免責聲明與授權
 
 本工具僅供使用者備份自己具備合法存取權限之內容，請遵守各平台服務條款及相關著作權規範。
@@ -126,9 +123,6 @@ npm run build:mac        # Build macOS package (run on macOS)
 npm run build:win        # Build Windows package
 ```
 
-- See [PROGRESS.md](PROGRESS.md) for live-site verification notes and open items.
-- See [server/README.md](server/README.md) for legacy server / NAS / Local Reader tools (not required for standard desktop usage).
-
 ### Disclaimer & License
 
 Use this tool only for content you have lawful permission to access, and respect each platform's terms of service and applicable copyright laws.
@@ -191,9 +185,6 @@ npm run check:release    # リリース設定を確認
 npm run build:mac        # macOS パッケージをビルド（macOS 上で実行）
 npm run build:win        # Windows パッケージをビルド
 ```
-
-- 実サイトでの検証状況と未確認事項は [PROGRESS.md](PROGRESS.md) を参照してください。
-- 旧バージョンのサーバー／NAS・Local Reader 関連ツールは [server/README.md](server/README.md) を参照してください（通常のデスクトップ利用では不要です）。
 
 ### 免責事項・ライセンス
 

@@ -7,7 +7,7 @@ const {pathToFileURL}=require('node:url');
 const {createHash,randomUUID}=require('node:crypto');
 const {sites,own,target,routes,enumerate,toolIssue,publicFallback,findTikTokAlbum}=require('./sources');
 const {MAX_COOKIE_FILE_BYTES,importCookieSnapshot,pastedXSnapshot,loginSnapshot,accessStatus,shouldTrySavedLogin,checkAccountAccess}=require('./login');
-const {archive,scan,transfer,gap,verified,fileName}=require('./archive');
+const {archive,scan,transfer,gap,verified,fileName,inside}=require('./archive');
 const {postLink,readLinkedPost}=require('./postLink');
 const {scanHistory,dateSearchUrl}=require('./xHistory');
 const {instagramWebPosts,instagramWebScope}=require('./instagramWeb');
@@ -16,10 +16,25 @@ protocol.registerSchemesAsPrivileged([{scheme:'sns-media',privileges:{standard:t
 const store=new Store({name:'sns-settings'});
 const loginWindows=new Map();
 const loginStates=new Map();
+const loginProbes=new Map();
 let mediaPaths=new Map();
 let exportPaths=new Map();
 let librarySequence=0;
 let window, job;
+const sameOrInside=(root,candidate)=>candidate===root || inside(root,candidate);
+const stableKey=(kind,value)=>createHash('sha256').update(kind+':'+value).digest('hex').slice(0,32);
+async function mapLimit(items,limit,fn) {
+  const results=new Array(items.length);
+  let next=0;
+  const workers=Array.from({length:Math.min(limit,items.length)},async()=>{
+    while(next<items.length){
+      const current=next++;
+      results[current]=await fn(items[current],current);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 const accounts=()=>store.get('accounts',[]);
 const langCode=()=>{const value=store.get('lang','zh-Hant');return ['zh-Hant','en','ja'].includes(value)?value:'zh-Hant';};
 const pick=table=>table[langCode()]||table['zh-Hant'];
@@ -64,6 +79,28 @@ async function withJar(content,fn) {
     await fs.writeFile(file,content,{mode:0o600,flag:'wx'});
     return await fn(file);
   } finally {await fs.rm(dir,{force:true,recursive:true}).catch(()=>{});}
+}
+
+async function withLazyJar(getContent,fn) {
+  let dir=null;
+  let file=null;
+  let created=false;
+  const getFile=async()=>{
+    if(created)return file;
+    created=true;
+    const content=getContent();
+    if(!content)return null;
+    dir=await fs.mkdtemp(path.join(os.tmpdir(),'sns-auth-'));
+    await fs.chmod(dir,0o700);
+    file=path.join(dir,'session.txt');
+    await fs.writeFile(file,content,{mode:0o600,flag:'wx'});
+    return file;
+  };
+  try {
+    return await fn(getFile);
+  } finally {
+    if(dir)await fs.rm(dir,{force:true,recursive:true}).catch(()=>{});
+  }
 }
 
 function secret(platform) {
@@ -139,10 +176,19 @@ async function enumerateSignedIn(account,scope,url,content,file,signal,probe=fal
 }
 
 async function refreshSavedAccess(platform,content) {
+  loginProbes.get(platform)?.abort();
+  const controller=new AbortController();
+  loginProbes.set(platform,controller);
   const blob=store.get(credentialKey(platform));
   setLoginStatus(platform,'checking');
-  const status=await checkSavedAccess(platform,content,new AbortController().signal);
-  if(store.get(credentialKey(platform))===blob)setLoginStatus(platform,status);
+  try {
+    const status=await checkSavedAccess(platform,content,controller.signal);
+    if(!controller.signal.aborted && loginProbes.get(platform)===controller && store.get(credentialKey(platform))===blob){
+      setLoginStatus(platform,status);
+    }
+  } finally {
+    if(loginProbes.get(platform)===controller)loginProbes.delete(platform);
+  }
 }
 
 async function readCookieFile(file) {
@@ -408,9 +454,9 @@ async function backupPost(value) {
     await waitUntilRunning(run);
     await ensureRoot(root);
     run.phase='saving';emit();
-    const result=await withJar(login,cookieFile=>archive(post,{
+    const result=await withLazyJar(()=>login,getCookieFile=>archive(post,{
       root:root.real,previous:index.get(accountKey(post)),accountFolder:backupFolder(root,index,post),signal,
-      transfer:(media,file)=>transfer(media,file,signal,cookieFile)
+      transfer:async(media,file)=>transfer(media,file,signal,media.videoUseTool && media.postUrl ? await getCookieFile() : null)
     }));
     const downloaded=(await Promise.all(result.record.media.map(media=>verified(result.record.folder,media)))).filter(Boolean).length;
     const partial=result.counts.failed || result.counts.limited;
@@ -523,58 +569,60 @@ async function updateAccount(account,run,root,index) {
   async function saveBatch(batch,history=false){
     const batchIssues=new Set();
     const fullRetry=run.retry && Boolean(previous.reasons?.length);
-    for(const [key,post] of batch){
-      await waitUntilRunning(run);
-      if(observedAccountId && observedAccountId!==post.accountId){batchIssues.add('identity');reasons.add('identity');noteIssue(post,0,1);continue;}
-      observedAccountId=post.accountId;
-      if(hasDateRange && !post.date){reasons.add('unknown-date');noteIssue(post,0,1);continue;}
-      if(!inDateRange(post.date))continue;
-      if(!history && run.retry && !fullRetry && !gaps.has(key))continue;
-      activePost=post;
-      await ensureRoot(root);
-      run.phase='saving';emit();
-      const prior=index.get(key);
-      const ids=gaps.get(key);
-      const recoverMissing=run.retry && prior && (prior.missing || prior.contentMissing);
-      const priorAlbum=post.fromPublicPlaylist && prior?.url?.includes('/photo/');
-      const suspectAlbum=post.fromPublicPlaylist && prior?.media.some(media=>media.type==='video' && !media.file && media.error);
-      const album=priorAlbum || suspectAlbum ? await findTikTokAlbum(post,signal) : null;
-      if(priorAlbum && !album){
-        reasons.add('unavailable');
-        noteIssue(prior,0,1);
-        gaps.delete(key);
-        activePost=null;
-        continue;
-      }
-      const snapshot=album || (run.retry && prior && !recoverMissing && (!history || ids) ?
-        {...post,media:post.media.filter(m=>ids?.has(m.id)),expected:0}:post);
-      const missingRetryMedia=!album && run.retry && prior && ids?.size && [...ids].some(id=>!snapshot.media.some(m=>m.id===id));
-      if(missingRetryMedia)reasons.add('unavailable');
-      let result=await withJar(album?null:secret(account.platform),cookieFile=>archive(snapshot,{
-        root:root.real, previous:prior, accountFolder:backupFolder(root,index,post), retry:run.retry && !recoverMissing, signal,
-        transfer:(media,file)=>transfer(media,file,signal,cookieFile)
-      }));
-      if(post.fromPublicPlaylist && !album && !suspectAlbum && result.counts.failed){
-        const detected=await findTikTokAlbum(post,signal);
-        if(detected){
-          const initial=result;
-          result=await archive(detected,{
-            root:root.real,previous:initial.record,signal,
-            transfer:(media,file)=>transfer(media,file,signal,null)
-          });
-          result.counts.added=initial.counts.added;
+    return withLazyJar(()=>secret(account.platform),async getCookieFile=>{
+      for(const [key,post] of batch){
+        await waitUntilRunning(run);
+        if(observedAccountId && observedAccountId!==post.accountId){batchIssues.add('identity');reasons.add('identity');noteIssue(post,0,1);continue;}
+        observedAccountId=post.accountId;
+        if(hasDateRange && !post.date){reasons.add('unknown-date');noteIssue(post,0,1);continue;}
+        if(!inDateRange(post.date))continue;
+        if(!history && run.retry && !fullRetry && !gaps.has(key))continue;
+        activePost=post;
+        await ensureRoot(root);
+        run.phase='saving';emit();
+        const prior=index.get(key);
+        const ids=gaps.get(key);
+        const recoverMissing=run.retry && prior && (prior.missing || prior.contentMissing);
+        const priorAlbum=post.fromPublicPlaylist && prior?.url?.includes('/photo/');
+        const suspectAlbum=post.fromPublicPlaylist && prior?.media.some(media=>media.type==='video' && !media.file && media.error);
+        const album=priorAlbum || suspectAlbum ? await findTikTokAlbum(post,signal) : null;
+        if(priorAlbum && !album){
+          reasons.add('unavailable');
+          noteIssue(prior,0,1);
+          gaps.delete(key);
+          activePost=null;
+          continue;
         }
+        const snapshot=album || (run.retry && prior && !recoverMissing && (!history || ids) ?
+          {...post,media:post.media.filter(m=>ids?.has(m.id)),expected:0}:post);
+        const missingRetryMedia=!album && run.retry && prior && ids?.size && [...ids].some(id=>!snapshot.media.some(m=>m.id===id));
+        if(missingRetryMedia)reasons.add('unavailable');
+        let result=await archive(snapshot,{
+          root:root.real, previous:prior, accountFolder:backupFolder(root,index,post), retry:run.retry && !recoverMissing, signal,
+          transfer:async(media,file)=>transfer(media,file,signal,!album && media.videoUseTool && media.postUrl ? await getCookieFile() : null)
+        });
+        if(post.fromPublicPlaylist && !album && !suspectAlbum && result.counts.failed){
+          const detected=await findTikTokAlbum(post,signal);
+          if(detected){
+            const initial=result;
+            result=await archive(detected,{
+              root:root.real,previous:initial.record,signal,
+              transfer:(media,file)=>transfer(media,file,signal,null)
+            });
+            result.counts.added=initial.counts.added;
+          }
+        }
+        if(result.counts.failed)batchIssues.add('unavailable');
+        index.set(key,result.record);
+        savedContent ||= Boolean(result.record.text || result.record.media.some(media=>media.file));
+        for(const field of Object.keys(counts))counts[field]+=result.counts[field];
+        noteIssue(result.record,result.counts.failed,result.counts.limited+Number(Boolean(missingRetryMedia)));
+        if(run.retry)gaps.delete(key);
+        activePost=null;
+        setResult(account,{...status,counts:{...counts}});
       }
-      if(result.counts.failed)batchIssues.add('unavailable');
-      index.set(key,result.record);
-      savedContent ||= Boolean(result.record.text || result.record.media.some(media=>media.file));
-      for(const field of Object.keys(counts))counts[field]+=result.counts[field];
-      noteIssue(result.record,result.counts.failed,result.counts.limited+Number(Boolean(missingRetryMedia)));
-      if(run.retry)gaps.delete(key);
-      activePost=null;
-      setResult(account,{...status,counts:{...counts}});
-    }
-    return batchIssues;
+      return batchIssues;
+    });
   }
 
   let matchedRange=false;
@@ -610,7 +658,7 @@ async function updateAccount(account,run,root,index) {
       await wait(15*60*1000);
     }
     const issues=await withJar(login,file=>scanHistory({ranges,wait,
-      floor:rangeLogin?Date.parse(account.since)/86400000:undefined,
+      floor:account.since?Date.parse(account.since)/86400000:undefined,
       until:rangeLogin?Date.parse(account.until)/86400000+1:undefined,
       accountFloor:()=>!rangeLogin && createdDay!==undefined?createdDay:-Infinity,
       report:progress=>{status.xHistory=progress;setResult(account,status);},
@@ -726,7 +774,12 @@ async function updateAccount(account,run,root,index) {
       }
     }
     await saveBatch(posts);
-    if(account.platform==='X' && !hasDateRange && readListings)await backfill();
+    if(account.platform==='X' && !account.until && readListings){
+      const listed=[...posts.values()].filter(post=>post.date && (!observedAccountId || observedAccountId===post.accountId));
+      const reachedBeforeSince=Boolean(account.since) && !reasons.size && listed.some(post=>Date.parse(post.date)<since);
+      const reachedSinceDay=Boolean(account.since) && !reasons.size && listed.some(post=>Date.parse(post.date)<since+86400000);
+      if(!account.since || (secret('X') ? !reachedBeforeSince : !reachedSinceDay))await backfill();
+    }
     if(run.retry && gaps.size){
       reasons.add('unavailable');
       for(const key of gaps.keys())noteIssue(index.get(key),0,1);
@@ -803,23 +856,34 @@ async function listArchive() {
     if(error.code==='ENOENT' && !store.has('root') && !store.has('library'))return {records:[],root:libraryPath()};
     return {records:[],root:libraryPath(),unavailable:true};
   }
+  const checked=new Map();
   async function present(folder,items){
-    return Promise.all(items.map(async item=>{
+    const result=[];
+    for(const item of items){
       const candidate=fileName(item.file)&&path.join(folder,item.file);
-      const available=candidate && await fs.lstat(candidate).then(stat=>stat.isFile(),()=>false);
-      if(!available)return {...item,available:false};
-      const key=randomUUID();
+      let available=false;
+      if(candidate){
+        if(checked.has(candidate))available=checked.get(candidate);
+        else {
+          available=await fs.lstat(candidate).then(stat=>stat.isFile(),()=>false);
+          checked.set(candidate,available);
+        }
+      }
+      if(!available){result.push({...item,available:false});continue;}
+      const key=stableKey('media',candidate);
       paths.set(key,candidate);
-      return {...item,available:true,href:'sns-media://archive/'+key};
-    }));
+      result.push({...item,available:true,href:'sns-media://archive/'+key});
+    }
+    return result;
   }
-  const views=await Promise.all(records.map(async p=>{
-    const exportId=randomUUID();
+  const views=await mapLimit(records,32,async p=>{
+    const exportId=stableKey('export',p.folder);
     exports.set(exportId,p.folder);
-    return {...p,exportId,media:await present(p.folder,p.media),
-      versions:await Promise.all(p.versions.map(async v=>({...v,media:await present(p.folder,v.media)})))
-    };
-  }));
+    const media=await present(p.folder,p.media);
+    const versions=[];
+    for(const v of p.versions)versions.push({...v,media:await present(p.folder,v.media)});
+    return {...p,exportId,media,versions};
+  });
   if(seq===librarySequence){mediaPaths=paths;exportPaths=exports;}
   return {root:libraryPath(),records:views};
 }
@@ -875,6 +939,8 @@ function setup(){
   register('clear-login',platform=>{
     busy();
     if(!Object.hasOwn(sites,platform))return;
+    loginProbes.get(platform)?.abort();
+    loginProbes.delete(platform);
     loginWindows.get(platform)?.close();
     store.delete(credentialKey(platform));loginStates.delete(platform);emit();
   });
@@ -891,23 +957,25 @@ function setup(){
     if(url.protocol==='https:'&&!url.port&&!url.username&&!url.password&&Object.values(sites).some(site=>own(url.hostname,site.host)))return shell.openExternal(url.href);
   });
   register('reveal',async folder=>{
+    if(typeof folder!=='string' || !folder)throw new Error('invalid-path');
     const root=await fs.realpath(libraryPath());
     const real=await fs.realpath(folder);
-    if(!real.startsWith(root+path.sep))throw new Error('invalid-path');
-    return shell.openPath(real);
+    if(!inside(root,real))throw new Error('invalid-path');
+    const issue=await shell.openPath(real);
+    if(issue)throw new Error('storage');
   });
   register('copy',async (id,whole)=>{
     const source=whole?exportPaths.get(id):mediaPaths.get(id);
     if(!source)return;
     const root=await fs.realpath(libraryPath());
-    if(await fs.realpath(source)!==source || !source.startsWith(root+path.sep))throw new Error('invalid-path');
+    if(await fs.realpath(source)!==source || !inside(root,source))throw new Error('invalid-path');
     const directory=whole?source:path.dirname(source);
     if(whole){
       const chosen=await dialog.showOpenDialog(window,{properties:['openDirectory','createDirectory']});
       if(chosen.canceled)return;
       const parent=await fs.realpath(chosen.filePaths[0]);
       const library=await fs.realpath(libraryPath());
-      if(parent===library||parent.startsWith(library+path.sep))throw new Error('invalid-path');
+      if(sameOrInside(library,parent))throw new Error('invalid-path');
       const dest=await fs.mkdtemp(path.join(parent,path.basename(directory)+'-'));
       try{
         for(const entry of await fs.readdir(directory,{withFileTypes:true})){
@@ -919,8 +987,20 @@ function setup(){
       if(chosen.canceled)return;
       const library=await fs.realpath(libraryPath());
       const parent=await fs.realpath(path.dirname(chosen.filePath));
-      if(parent===library||parent.startsWith(library+path.sep))throw new Error('invalid-path');
-      await fs.copyFile(source,chosen.filePath,require('node:fs').constants.COPYFILE_EXCL);
+      if(sameOrInside(library,parent))throw new Error('invalid-path');
+      const targetFile=path.join(parent,path.basename(chosen.filePath));
+      try{
+        if(sameOrInside(library,await fs.realpath(targetFile)))throw new Error('invalid-path');
+      }catch(error){
+        if(error.code!=='ENOENT')throw error;
+      }
+      const temp=path.join(parent,'.sns-save-'+randomUUID());
+      try{
+        await fs.copyFile(source,temp,require('node:fs').constants.COPYFILE_EXCL);
+        await fs.rename(temp,targetFile);
+      }finally{
+        await fs.rm(temp,{force:true}).catch(()=>{});
+      }
     }
   });
 }
@@ -943,7 +1023,7 @@ app.whenReady().then(()=>{
     if(url.hostname!=='archive' || !file)return new Response(null,{status:404});
     try{
       const actual=await fs.realpath(file), root=await fs.realpath(libraryPath());
-      if(actual!==file || !actual.startsWith(root+path.sep))return new Response(null,{status:404});
+      if(actual!==file || !inside(root,actual))return new Response(null,{status:404});
       const headers=new Headers();
       const range=request.headers.get('range');
       if(range)headers.set('range',range);
@@ -953,5 +1033,9 @@ app.whenReady().then(()=>{
   create();
   app.on('activate',()=>{if(!window || window.isDestroyed())create();});
 });
-app.on('before-quit',()=>{job?.controller.abort();});
+app.on('before-quit',()=>{
+  job?.controller.abort();
+  for(const controller of loginProbes.values())controller.abort();
+  loginProbes.clear();
+});
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});

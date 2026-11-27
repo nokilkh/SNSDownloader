@@ -210,3 +210,48 @@ test('an empty extra Instagram list is success and a rejected list stays in that
   assert.deepEqual(denied.posts,[]);
   assert.deepEqual(denied.errors,['stories-unverified']);
 });
+
+test('skips foreign collab posts on regular timeline while still rejecting unrelated profiles',async()=>{
+  const collabNode={...node,pk:'888888888888888801',user:{pk:'456',username:'partner'},
+    coauthor_producers:[{pk:'123',username:'example'}]};
+  let calls=0;
+  const mixed=await instagramWebPosts(account,jar,signal,{interval:0,fetcher:async()=>{
+    if(++calls===1)return new Response(home);
+    return Response.json(page([collabNode,node],null));
+  }});
+  assert.deepEqual(mixed.errors,[]);
+  assert.equal(mixed.posts.length,1);
+  assert.equal(mixed.posts[0].id,node.pk);
+
+  let wrongCalls=0;
+  const wrongUser={...node,pk:'888888888888888802',user:{pk:'999',username:'stranger'}};
+  const rejected=await instagramWebPosts(account,jar,signal,{interval:0,fetcher:async()=>{
+    if(++wrongCalls===1)return new Response(home);
+    return Response.json(page([wrongUser],null));
+  }});
+  assert.equal(rejected.posts.length,0);
+  assert.deepEqual(rejected.errors,['ig-web-identity']);
+});
+
+test('stops scanning Instagram JS bundles once the target GraphQL op is resolved',async()=>{
+  const owned={...account,accountId:'123'};
+  const homeWithTwoBundles=home+
+    ' <link href="https://static.cdninstagram.com/rsrc.php/v4/first.js">'+
+    ' <link href="https://static.cdninstagram.com/rsrc.php/v4/second.js">';
+  const fetchedBundles=[];
+  const fetcher=async(url)=>{
+    const address=String(url);
+    if(address==='https://www.instagram.com/')return new Response(homeWithTwoBundles);
+    if(address.startsWith('https://static.cdninstagram.com/rsrc.php/')){
+      fetchedBundles.push(address);
+      return new Response(
+        '__d("PolarisStoriesV3ReelPageGalleryQuery_instagramRelayOperation",[],(function(a,b,c,d,e,f){e.exports="111222333"}));'+
+        '__d("PolarisStoriesV3ReelPageGalleryQuery$Parameters",["PolarisDynamicStoryFlag.relayprovider"],(function(){}));'
+      );
+    }
+    return Response.json({data:{xdt_api__v1__feed__reels_media__connection:{edges:[],page_info:{has_next_page:false}}}});
+  };
+  const result=await instagramWebScope(owned,jar,signal,{scope:'story',fetcher,interval:0,sessionBox:{}});
+  assert.deepEqual(result.errors,[]);
+  assert.deepEqual(fetchedBundles,['https://static.cdninstagram.com/rsrc.php/v4/first.js']);
+});

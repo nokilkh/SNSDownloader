@@ -176,8 +176,16 @@ function relayVariables(variables,params=[]) {
   return result;
 }
 
-async function scanOpsFromHtml(session,html,signal) {
+const MAX_BUNDLE_BYTES=8*1024*1024;
+
+async function scanOpsFromHtml(session,html,signal,targetName) {
   if(!html || !html.includes(bundlePrefix))return;
+  const hasTarget=()=>{
+    if(!targetName)return false;
+    const found=session.ops.get(targetName);
+    return Boolean(found?.docId && found?.params!==undefined);
+  };
+  if(hasTarget())return;
   const hrefs=[...new Set([...html.matchAll(/href="(https:\/\/static\.cdninstagram\.com\/rsrc\.php\/[^"]+\.js[^"]*)"/g)]
     .map(match=>match[1].replace(/&amp;/g,'&')))].slice(0,40);
   const opNames=[highlightsTrayOp.name,storiesGalleryOp.name].join('|');
@@ -189,8 +197,17 @@ async function scanOpsFromHtml(session,html,signal) {
     let js='';
     try{
       const response=await session.fetcher(href,{redirect:'manual',signal:AbortSignal.any([signal,AbortSignal.timeout(10000)])});
-      if(!response.ok){await response.body?.cancel().catch(()=>{});continue;}
-      js=await response.text();
+      if(!response.ok || !response.body){await response.body?.cancel().catch(()=>{});continue;}
+      let bytes=0;
+      const chunks=[];
+      let oversized=false;
+      for await(const chunk of response.body){
+        bytes+=chunk.length;
+        if(bytes>MAX_BUNDLE_BYTES){oversized=true;break;}
+        chunks.push(chunk);
+      }
+      if(oversized){await response.body?.cancel().catch(()=>{});continue;}
+      js=Buffer.concat(chunks).toString('utf8');
     }catch{
       signal.throwIfAborted();
       continue;
@@ -200,10 +217,11 @@ async function scanOpsFromHtml(session,html,signal) {
       session.ops.set(match[1],{...current,docId:match[2]});
     }
     for(const match of js.matchAll(paramRe)){
-      const params=[...new Set(match[2].split(',').filter(item=>item.endsWith('.relayprovider"')).map(item=>item.slice(1,-15)))];
+      const params=[...new Set(match[2].split(',').map(item=>item.trim()).filter(item=>item.endsWith('.relayprovider"')).map(item=>item.slice(1,-15)))];
       const current=session.ops.get(match[1])||{};
       session.ops.set(match[1],{...current,params});
     }
+    if(hasTarget())return;
   }
 }
 
@@ -214,22 +232,23 @@ async function resolveOp(session,account,signal,op) {
   };
   let resolved=read();
   if(resolved)return resolved;
-  if(!session.scannedHome){
-    session.scannedHome=true;
-    await scanOpsFromHtml(session,session.home,signal);
-    resolved=read();
-    if(resolved)return resolved;
-  }
-  if(session.home.includes(bundlePrefix) && !session.scannedProfile){
-    session.scannedProfile=true;
-    try{
-      const profile=await readResponse(session.fetcher,origin+'/'+account.handle+'/',{headers:{...session.headers(),accept:'text/html,*/*;q=0.8'}},signal,session.cookies,op.name);
-      await scanOpsFromHtml(session,profile,signal);
-    }catch{
-      signal.throwIfAborted();
+  await scanOpsFromHtml(session,session.home,signal,op.name);
+  resolved=read();
+  if(resolved)return resolved;
+  if(session.home.includes(bundlePrefix)){
+    if(!session.profileHtml && !session.scannedProfile){
+      session.scannedProfile=true;
+      try{
+        session.profileHtml=await readResponse(session.fetcher,origin+'/'+account.handle+'/',{headers:{...session.headers(),accept:'text/html,*/*;q=0.8'}},signal,session.cookies,op.name);
+      }catch{
+        signal.throwIfAborted();
+      }
     }
-    resolved=read();
-    if(resolved)return resolved;
+    if(session.profileHtml){
+      await scanOpsFromHtml(session,session.profileHtml,signal,op.name);
+      resolved=read();
+      if(resolved)return resolved;
+    }
   }
   return {docId:op.docId,params:op.params};
 }
@@ -307,11 +326,28 @@ function rowsForNode(node,account) {
   return rows;
 }
 
+function isForeignCollabNode(node,account,hasVerifiedOwnPosts) {
+  const postId=String(node?.pk || '');
+  const ownerId=String(node?.user?.pk || node?.user?.id || '');
+  const owner=node?.user?.username;
+  if(!/^\d+$/.test(postId) || !/^\d+$/.test(ownerId) || !/^[\w-]+$/.test(node?.code || '') || typeof owner!=='string')return false;
+  const foreignOwner=owner.toLowerCase()!==account.handle.toLowerCase() || (Boolean(account.accountId) && account.accountId!==ownerId);
+  if(!foreignOwner)return false;
+  const coauthors=Array.isArray(node.coauthor_producers)?node.coauthor_producers:[];
+  const listedCoauthor=coauthors.some(coauthor=>{
+    const coId=String(coauthor?.pk || coauthor?.id || '');
+    const coName=typeof coauthor?.username==='string'?coauthor.username.toLowerCase():'';
+    return (coName && coName===account.handle.toLowerCase()) || (account.accountId && coId===String(account.accountId));
+  });
+  return listedCoauthor || hasVerifiedOwnPosts;
+}
+
 async function instagramWebPosts(account,jar,signal,{probe=false,fetcher=fetch,interval=6000,userAgent,onScan,sessionBox}={}) {
   const posts=new Map();
   const issues=new Set();
   let cursor,pages=0,stop='end';
   const cursors=new Set();
+  const seenCollabs=new Set();
   try{
     const session=await openSession(account,jar,signal,{fetcher,userAgent,sessionBox});
     while(true){
@@ -328,17 +364,26 @@ async function instagramWebPosts(account,jar,signal,{probe=false,fetcher=fetch,i
       const page=payload?.data?.[timelineField];
       if(!Array.isArray(page?.edges) || typeof page.page_info?.has_next_page!=='boolean')throw new Error(queryFailure);
       pages++;
-      let fresh=0;
-      for(const edge of page.edges){
-        const [post]=normalize(account,'posts',rowsForNode(edge?.node,account));
-        if(!post){issues.add(identityFailure);continue;}
+      const parsedEdges=page.edges.map(edge=>({node:edge?.node,post:normalize(account,'posts',rowsForNode(edge?.node,account))[0] || null}));
+      const hasVerifiedOwnPosts=posts.size>0 || parsedEdges.some(entry=>Boolean(entry.post));
+      let fresh=0,freshCollabs=0;
+      for(const {node,post} of parsedEdges){
+        if(!post){
+          if(isForeignCollabNode(node,account,hasVerifiedOwnPosts)){
+            const collabId=String(node.pk);
+            if(!seenCollabs.has(collabId)){seenCollabs.add(collabId);freshCollabs++;}
+            continue;
+          }
+          issues.add(identityFailure);
+          continue;
+        }
         if(!posts.has(post.id)){
           markDirect([post]);
           posts.set(post.id,post);
           fresh++;
         }
       }
-      if(!fresh && (pages===1 || page.edges.length || page.page_info.has_next_page)){
+      if(!fresh && !freshCollabs && (pages===1 || page.edges.length || page.page_info.has_next_page)){
         if(!posts.size && issues.has(identityFailure))throw new Error(identityFailure);
         stop='no-progress';
         throw new Error(pages===1?queryFailure:invalid);

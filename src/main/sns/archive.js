@@ -5,9 +5,12 @@ const {randomUUID,createHash} = require('node:crypto');
 const {target, command, toolIssue} = require('./sources');
 const {downloadMedia}=require('./mediaDownload');
 
-const extensions = new Set(['jpg','jpeg','png','webp','gif','avif','heic','mp4','mkv','webm','mov','m4v']);
+const extensions = new Set(['jpg','jpeg','png','webp','gif','avif','heic','bmp','mp4','mkv','webm','mov','m4v']);
 const same = (a,b) => JSON.stringify(a)===JSON.stringify(b);
-const inside = (root,file) => file.startsWith(root+path.sep);
+const inside = (root,file) => {
+  const rel = path.relative(root,file);
+  return Boolean(rel) && !rel.startsWith('..'+path.sep) && rel!=='..' && !path.isAbsolute(rel);
+};
 const fileName = (file) => typeof file==='string' && /^media-[a-f0-9]{16}\.[a-z0-9]+$/.test(file);
 
 function dateParts(value) {
@@ -69,12 +72,16 @@ async function digest(file) {
   return hash.digest('hex');
 }
 
-async function verified(folder,media) {
+async function verified(folder,media,{fast=false}={}) {
   if (!fileName(media.file) || !media.sha256) return false;
   const file=path.join(folder,media.file);
   try {
     const stat=await fs.lstat(file);
-    return stat.isFile() && stat.size===media.bytes && await digest(file)===media.sha256;
+    if (!stat.isFile() || stat.size!==media.bytes) return false;
+    if (fast && typeof media.mtimeMs==='number' && Math.abs(stat.mtimeMs-media.mtimeMs)<1) return true;
+    const matched=await digest(file)===media.sha256;
+    if (matched && typeof media.mtimeMs!=='number') media.mtimeMs=stat.mtimeMs;
+    return matched;
   } catch(error) {
     if (error.code==='ENOENT') return false;
     throw error;
@@ -128,7 +135,8 @@ async function archive(post,{root, transfer,signal, previous, accountFolder, ret
       media.altState=input.altState;
       media.alt=input.alt;
     }
-    const good=prior && await verified(folder,prior);
+    const good=prior && await verified(folder,prior,{fast:!retry});
+    if (good && typeof prior.mtimeMs==='number') media.mtimeMs=prior.mtimeMs;
     if (good && prior.quality==='best') {
       counts.skipped++;
       delete media.error;
@@ -140,7 +148,8 @@ async function archive(post,{root, transfer,signal, previous, accountFolder, ret
         signal.throwIfAborted();
         const sha256=await digest(tmp);
         if (!extensions.has(result.ext)) throw new Error('Unsupported media');
-        const bytes=(await fs.stat(tmp)).size;
+        const stat=await fs.stat(tmp);
+        const bytes=stat.size;
         if (!bytes) throw new Error('Empty media');
         if (good && (result.width*result.height < prior.width*prior.height ||
           (prior.quality==='best' && result.quality!=='best'))) {
@@ -148,9 +157,11 @@ async function archive(post,{root, transfer,signal, previous, accountFolder, ret
         } else {
           const fingerprint=createHash('sha256').update(input.id+':'+sha256).digest('hex').slice(0,16);
           const file=`media-${fingerprint}.${result.ext}`;
-          await fs.rename(tmp,path.join(folder,file));
+          const dest=path.join(folder,file);
+          await fs.rename(tmp,dest);
+          const finalStat=await fs.lstat(dest);
           if(good && (result.width*result.height>prior.width*prior.height || result.quality==='best')) counts.upgraded++;
-          Object.assign(media,result,{sha256,bytes,file});
+          Object.assign(media,result,{sha256,bytes,mtimeMs:finalStat.mtimeMs,file});
         }
         delete media.error;
       } catch(error) {
@@ -221,8 +232,9 @@ async function transfer(media,file,signal,cookieFile) {
     try {
       await downloadMedia(url,file,signal);
       const actual=await probe(file,signal);
-      const ext=({mjpeg:'jpg',png:'png',webp:'webp',gif:'gif',av1:'avif'})[actual.codec];
-      return {...actual,source:'direct',ext:media.type==='image' && ext ? ext:media.ext,
+      const ext=({mjpeg:'jpg',png:'png',webp:'webp',gif:'gif',av1:'avif',hevc:'heic',bmp:'bmp'})[actual.codec];
+      const finalExt=String(media.type==='image' && ext ? ext : media.ext || '').toLowerCase();
+      return {...actual,source:'direct',ext:finalExt,
         quality:(media.type==='image' || media.directBest) && index===0 && matchesResolution(actual,media) ? 'best':'limited'};
     } catch (cause) {
       if(signal.aborted || ['rate-limit','ENOSPC','EACCES','EROFS','ENODEV','EIO','EEXIST'].includes(cause.code)) throw cause;
@@ -240,4 +252,4 @@ function matchesResolution(actual,media) {
   return measured.every((v,i)=>v>=expected[i]);
 }
 
-module.exports={archive,scan,transfer,gap,verified,fileName,markdown,dateParts};
+module.exports={archive,scan,transfer,gap,verified,fileName,markdown,dateParts,inside};

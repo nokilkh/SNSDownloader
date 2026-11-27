@@ -1,9 +1,8 @@
-const { execFile } = require('node:child_process');
-const { existsSync } = require('node:fs');
-const { promisify } = require('node:util');
+const { spawn } = require('node:child_process');
+const { existsSync, readdirSync } = require('node:fs');
 const path = require('node:path');
 
-const runFile = promisify(execFile);
+const MAX_COMMAND_BUFFER = 96 * 1024 * 1024;
 const sites = {
   X: { host:'x.com', aliases:['twitter.com'], login:'https://x.com/i/flow/login', loginCookies:['auth_token','ct0'] },
   IG: { host:'instagram.com', aliases:[], login:'https://www.instagram.com/accounts/login/', loginCookies:['sessionid','csrftoken'] },
@@ -125,15 +124,148 @@ function normalize(account, scope, rows) {
   });
 }
 
-function command(name, args, signal, timeout=120000, environment) {
-  const key = Object.keys(process.env).find(k=>k.toUpperCase()==='PATH') || 'PATH';
-  const bundled = process.platform==='win32' && process.resourcesPath ? path.join(process.resourcesPath,'tools','windows') : null;
-  const exe = bundled ? path.join(bundled,name+'.exe') : name;
-  const env = {...process.env,...environment,[key]:[bundled,process.env[key],'/opt/homebrew/bin','/usr/local/bin',
-    process.env.HOME && path.join(process.env.HOME,'.local','bin'),'/Library/Frameworks/Python.framework/Versions/3.14/bin'].filter(Boolean).join(path.delimiter)};
-  const opts = {signal,timeout,windowsHide:true,env,maxBuffer:96*1024*1024};
-  return runFile(exe,args,opts).catch(error => {
-    if (process.platform==='win32' && exe!==name && error.code==='ENOENT') return runFile(name,args,opts);
+function pythonFrameworkBins() {
+  if (process.platform !== 'darwin') return [];
+  const root = '/Library/Frameworks/Python.framework/Versions';
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && /^\d+\.\d+/.test(entry.name))
+      .map(entry => entry.name)
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+      .map(version => path.join(root, version, 'bin'))
+      .filter(existsSync);
+  } catch {
+    return [];
+  }
+}
+
+function killProcessTree(child) {
+  if (!child.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).unref();
+    } else {
+      process.kill(-child.pid, 'SIGTERM');
+      const force = setTimeout(() => {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+      }, 2000);
+      force.unref();
+    }
+  } catch {
+    try { child.kill('SIGKILL'); } catch {}
+  }
+}
+
+function runFile(exe, args, { signal, timeout = 120000, env, maxBuffer = MAX_COMMAND_BUFFER } = {}) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      err.code = 'ABORT_ERR';
+      reject(err);
+      return;
+    }
+    const child = spawn(exe, args, {
+      env,
+      windowsHide: true,
+      shell: false,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let settled = false;
+    let killed = false;
+    let killReason = null;
+    let timer = null;
+
+    const cleanup = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const terminate = (reason) => {
+      if (killed) return;
+      killed = true;
+      killReason = reason;
+      killProcessTree(child);
+    };
+    const onAbort = () => terminate('abort');
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (timeout > 0) {
+      timer = setTimeout(() => terminate('timeout'), timeout);
+    }
+
+    const collect = (chunks, getBytes, setBytes) => chunk => {
+      const next = getBytes() + chunk.length;
+      if (next > maxBuffer) {
+        terminate('maxBuffer');
+        return;
+      }
+      setBytes(next);
+      chunks.push(chunk);
+    };
+    child.stdout.on('data', collect(stdoutChunks, () => stdoutBytes, v => { stdoutBytes = v; }));
+    child.stderr.on('data', collect(stderrChunks, () => stderrBytes, v => { stderrBytes = v; }));
+
+    child.on('error', error => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    });
+    child.on('close', (code, exitSignal) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+      const stderr = Buffer.concat(stderrChunks).toString('utf8');
+      if (killReason === 'abort') {
+        const err = Object.assign(new Error('The operation was aborted'), { name: 'AbortError', code: 'ABORT_ERR', killed: true, stdout, stderr });
+        reject(err);
+        return;
+      }
+      if (killReason === 'maxBuffer') {
+        const err = Object.assign(new Error('Command stdout/stderr maxBuffer exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', killed: true, stdout, stderr });
+        reject(err);
+        return;
+      }
+      if (code === 0 && !killed) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const err = Object.assign(new Error(`Command failed: ${exe}`), {
+        code: code ?? exitSignal ?? 1,
+        signal: exitSignal,
+        killed,
+        stdout,
+        stderr
+      });
+      reject(err);
+    });
+  });
+}
+
+function command(name, args, signal, timeout = 120000, environment) {
+  const key = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') || 'PATH';
+  const bundled = process.platform === 'win32' && process.resourcesPath ? path.join(process.resourcesPath, 'tools', 'windows') : null;
+  const exe = bundled ? path.join(bundled, name + '.exe') : name;
+  const env = {
+    ...process.env,
+    ...environment,
+    [key]: [
+      bundled,
+      process.env[key],
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      process.env.HOME && path.join(process.env.HOME, '.local', 'bin'),
+      ...pythonFrameworkBins()
+    ].filter(Boolean).join(path.delimiter)
+  };
+  const opts = { signal, timeout, env, maxBuffer: MAX_COMMAND_BUFFER };
+  return runFile(exe, args, opts).catch(error => {
+    if (process.platform === 'win32' && exe !== name && error.code === 'ENOENT') return runFile(name, args, opts);
     throw error;
   });
 }
@@ -158,7 +290,7 @@ async function enumerate(account, scope, url, cookieFile, signal, probe=false) {
     '-o','extractor.twitter.retweets=false','-o','extractor.twitter.quoted=false',
     '-o','extractor.twitter.articles=false','-o','extractor.tiktok.audio=false',
     '-o','output.private=true','-J'];
-  if (account.platform==='X' && (url.startsWith('https://x.com/search?') || (!probe && !account.since && !account.until))) args.push('-o','extractor.twitter.ratelimit=abort');
+  if (account.platform==='X' && (url.startsWith('https://x.com/search?') || (!probe && !account.until))) args.push('-o','extractor.twitter.ratelimit=abort');
   if (cookieFile) args.push('-o','extractor.cookies-update=false','--cookies',cookieFile);
   if (probe) args.push('--post-range','1-3');
   let environment;

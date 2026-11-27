@@ -70,7 +70,7 @@ assert called == [('MS4wLjABAAAAtestSecUid123456', 'sample', False)], called
 assert playlist['id'] == 'MS4wLjABAAAAtestSecUid123456', playlist
 print('OK')
 `;
-  const out=execFileSync(shebang,['-c',py],{encoding:'utf8'});
+  const out=execFileSync(shebang,['-c',py],{encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
   assert.equal(out.trim(),'OK');
 });
 

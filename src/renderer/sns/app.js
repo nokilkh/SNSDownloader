@@ -54,6 +54,7 @@ const translations={
     '下載存取已驗證':'Download access verified','登入存取未能驗證，請重新登入或檢查。':'Could not verify login access. Sign in again or recheck.',
     '系統加密暫時不可用':'System encryption is currently unavailable','已完成操作。':'Done.',
     '儲存位置不可用，請重新連接或更改位置。':'Storage location is unavailable. Reconnect it or choose another folder.',
+    '請選擇備份資料夾以外的位置。':'Choose a location outside the backup folder.',
     '請輸入有效的帳號或個人頁連結。':'Enter a valid account handle or profile URL.',
     '請選擇有效日期。':'Select a valid date.',
     '操作未能完成，請檢查設定後再試。':'The operation could not be completed. Check your settings and try again.'
@@ -111,6 +112,7 @@ const translations={
     '下載存取已驗證':'アクセスを確認済み','登入存取未能驗證，請重新登入或檢查。':'アクセスを確認できません。再ログインまたは再確認してください。',
     '系統加密暫時不可用':'システム暗号化を利用できません','已完成操作。':'操作が完了しました。',
     '儲存位置不可用，請重新連接或更改位置。':'保存先を利用できません。接続または設定を確認してください。',
+    '請選擇備份資料夾以外的位置。':'バックアップフォルダー以外の保存先を選んでください。',
     '請輸入有效的帳號或個人頁連結。':'有効なアカウント名またはプロフィール URL を入力してください。',
     '請選擇有效日期。':'有効な日付を選んでください。',
     '操作未能完成，請檢查設定後再試。':'操作を完了できませんでした。設定を確認して再試行してください。'
@@ -132,6 +134,7 @@ const videoPreviews=new IntersectionObserver(entries=>{
 },{rootMargin:'160px'});
 let stateSequence=0;
 let submittingPost=false;
+let lastTargetsSignature='',lastLoginsSignature='';
 const tr=value=>translations[state.lang]?.[value]??value;
 const pick=table=>table[state.lang]??table['zh-Hant'];
 const labels={
@@ -328,8 +331,12 @@ function notice(value,warning=false){
 async function action(name,...args){
   try{await call(name,...args);await refresh();}
   catch(error){
-    const detail=error.message;
-    const message=detail.includes('invalid-account')?'請輸入有效的帳號或個人頁連結。':'操作未能完成，請檢查設定後再試。';
+    const detail=error.message||'';
+    const message=detail.includes('invalid-account')?'請輸入有效的帳號或個人頁連結。'
+      :detail.includes('invalid-path')?'請選擇備份資料夾以外的位置。'
+      :detail.includes('storage')?'儲存位置不可用，請重新連接或更改位置。'
+      :detail.includes('busy')?'請等待目前的備份完成後，再試一次。'
+      :'操作未能完成，請檢查設定後再試。';
     notice(message,true);
   }
 }
@@ -407,7 +414,7 @@ function renderAccountReport(account){
     });
     const span=from && through?' ('+from+' – '+through+' HKT)':'';
     const prefix=pick({'zh-Hant':'X 歷史搜尋 · ',en:'X History Search · ',ja:'X 履歴検索 · '});
-    panel.append(element('p',prefix+messages[phase]+span,'hint'));
+    panel.append(element('p',prefix+(messages[phase]||phase)+span,'hint'));
   }
   if(report.igScan){
     const {pages,posts,stop}=report.igScan;
@@ -476,6 +483,9 @@ function renderTargets(){
     $('stop').disabled=j.stopping;
   }
   const list=state.accounts.filter(a=>!platformFilter||platformFilter===a.platform);
+  const signature=JSON.stringify({lang:state.lang,hasJob,platformFilter,reportKey,login:state.login,accounts:list});
+  if(signature===lastTargetsSignature)return;
+  lastTargetsSignature=signature;
   const rows=list.map((a,index)=>{
     const r=a.result;
     const isExpanded=a.key===reportKey&&Boolean(r);
@@ -505,7 +515,11 @@ function renderTargets(){
     const result=element('div');
     result.append(element('strong',tr(phases[r?.phase]||'未開始'),['partial','failed'].includes(r?.phase)?'warning':r?.phase==='complete'?'success':''));
     for(const issue of visibleReasons(r).slice(0,2))result.append(element('div',tr(labels[issue]||issue),'hint'));
-    if(r?.reasons?.includes('access'))result.append(btn(loginLabel(a.platform),()=>a.platform==='X'?$('x-paste-dialog').showModal():action('login',a.platform),{className:'quiet'}));
+    if(r?.reasons?.includes('access')){
+      const loginState=state.login?.[a.platform];
+      const loginDisabled=a.platform==='X' ? (hasJob||loginState==='checking') : (loginState==='waiting'||loginState==='checking');
+      result.append(btn(loginLabel(a.platform),()=>a.platform==='X'?$('x-paste-dialog').showModal():action('login',a.platform),{className:'quiet',disabled:loginDisabled}));
+    }
     const ops=element('div',undefined,'actions');
     ops.append(btn('更新',()=>action('start',a.key,false),{disabled:hasJob}));
     row.append(name,times,result,ops);
@@ -515,16 +529,20 @@ function renderTargets(){
   $('targets').replaceChildren(...(rows.length?rows:[element('p',tr('尚未有備份帳戶。請按「新增備份帳戶」開始。'),'panel')]));
 }
 function renderSettings(){
+  const hasJob=Boolean(state.job);
+  const signature=JSON.stringify({lang:state.lang,hasJob,login:state.login});
+  if(signature===lastLoginsSignature)return;
+  lastLoginsSignature=signature;
   const rows=Object.entries(state.login||{}).map(([platform,status])=>{
     const section=element('section');
     const ops=element('div',undefined,'actions');
     if(platform==='X'){
-      ops.append(btn('貼上 X 登入資料',()=>$('x-paste-dialog').showModal(),{disabled:Boolean(state.job)||status==='checking'}));
+      ops.append(btn('貼上 X 登入資料',()=>$('x-paste-dialog').showModal(),{disabled:hasJob||status==='checking'}));
     }else{
       ops.append(btn(loginLabel(platform),()=>action('login',platform),{disabled:status==='waiting'||status==='checking'}));
     }
     ops.append(btn('重新檢查',()=>action('check-login',platform),{disabled:['anonymous','waiting','checking'].includes(status)}),
-      btn('清除登入資料',()=>action('clear-login',platform),{disabled:Boolean(state.job)||status==='anonymous'}));
+      btn('清除登入資料',()=>action('clear-login',platform),{disabled:hasJob||status==='anonymous'}));
     section.append(element('h3',platform),element('p',tr(loginCopy[status]),status==='connected'?'success':loginPending.has(status)?'':'warning'));
     section.append(ops);
     return section;
@@ -541,6 +559,10 @@ async function refresh(){
   if(previousRoot!==state.library||Boolean(before.job)&&!state.job)libraryDirty=true;
   renderTargets();
   renderSettings();
+  if($('post-dialog').open){
+    const updateButton=$('post').querySelector('[data-post-update]');
+    if(updateButton)updateButton.disabled=Boolean(state.job);
+  }
   if(state.lang!==before.lang)renderStatic();
   if(tab==='library'&&libraryDirty)loadLibrary();
 }
@@ -719,7 +741,7 @@ function renderLibrary(){
     if(types.length!==3&&!types.some(type=>type==='text'
       ? isTextPost(post)
       : post.media.some(item=>item.type===type)))return false;
-    return !query||[post.text,...post.media.map(item=>item.alt)].some(value=>typeof value==='string'&&searchText(value).includes(query));
+    return !query||post.searchBlob.includes(query);
   }).sort((a,b)=>{
     const aDated=Boolean(a.archiveDay),bDated=Boolean(b.archiveDay);
     if(aDated!==bDated)return aDated?-1:1;
@@ -773,7 +795,11 @@ function renderPost(){
     const account=state.accounts.find(a=>a.platform===post.platform&&(a.accountId
       ? a.accountId===post.accountId
       : a.handle.toLowerCase()===post.account.toLowerCase()));
-    if(account)view.append(btn('更新',()=>action('start',account.key,false),{disabled:Boolean(state.job)}));
+    if(account){
+      const updateBtn=btn('更新',()=>action('start',account.key,false),{disabled:Boolean(state.job)});
+      updateBtn.dataset.postUpdate='true';
+      view.append(updateBtn);
+    }
   }
   for(const item of content.media){
     const figure=element('figure');
@@ -805,7 +831,8 @@ async function loadLibrary(){
     $('library-path').textContent=data.root;
     records=data.records.map(post=>{
       const timestamp=Date.parse(post.date);
-      return {...post,timestamp,archiveDay:day(timestamp)};
+      const searchBlob=searchText([post.text,...post.media.map(item=>item.alt)].filter(value=>typeof value==='string').join('\n'));
+      return {...post,timestamp,archiveDay:day(timestamp),searchBlob};
     });
     libraryStatus=data.unavailable?'error':'ready';
   }catch{
@@ -834,7 +861,7 @@ for(const control of document.querySelectorAll('.date-control')){
   picker.id=input.id+'-picker';
   button.onclick=()=>{
     picker.value=readDate(input)||'';
-    picker.showPicker();
+    try{picker.showPicker();}catch{}
   };
   picker.oninput=event=>{
     event.stopPropagation();
@@ -979,7 +1006,7 @@ window.addEventListener('scroll',()=>{
   const scrolledDown=scrollTop>lastScrollTop;
   lastScrollTop=scrollTop;
   if(tab==='library'&&scrolledDown&&!$('library-more').hidden&&!$('post-dialog').open
-      &&scrollHeight-clientHeight-scrollTop<=1){
+      &&scrollHeight-clientHeight-scrollTop<=40){
     appendLibraryCards();
   }
 },{passive:true});
